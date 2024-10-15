@@ -2,49 +2,40 @@ import logging
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-from openai import OpenAI
+import openai
 import httpx
-from typing import Annotated
-from typing_extensions import TypedDict
 
 # Initialize FastAPI app
 app = FastAPI()
 
-# Instantiate the OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Set OpenAI API key
+openai.api_key = os.getenv("OPENAI_API_KEY")
 telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
 telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 
-# Define the chatbot function to retrieve relevant info and generate a response
+# Define the chatbot function to generate a response
 async def generate_response(user_query: str):
     try:
-        # Perform embedding-based document search (if applicable)
-        search_results = client.embeddings.create(
+        # (Optional) Perform embedding-based document search if applicable
+        search_results = openai.Embedding.create(
             model="text-embedding-ada-002",
             input=user_query
         )
 
-        # Convert the search results to a dictionary if needed
-        search_data = search_results.model_dump()  # This will give you a dictionary
-
-        # Retrieve the relevant content from the embeddings
-        retrieved_content = " ".join([doc['text'] for doc in search_data['data']])  # Adapt based on your retrieval logic
-
-        # Generate a response using GPT-4 based on the retrieved content and user query
-        gpt_response = client.chat.completions.create(
+        # Use the query to generate a response using GPT-4
+        gpt_response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": f"Context: {retrieved_content}. Question: {user_query}"}
+                {"role": "user", "content": user_query}
             ]
         )
 
         # Return the GPT-4 generated answer
-        return gpt_response.choices[0].message.content
+        return gpt_response['choices'][0]['message']['content']
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now."
-
 
 # Data model for handling the Telegram Webhook payload
 class TelegramWebhook(BaseModel):
