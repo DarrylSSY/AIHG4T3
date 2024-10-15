@@ -80,9 +80,11 @@ async def run_conversation(user_input: str):
         # Define the system message (role assignment)
         system_message = SystemMessage(content="You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app.")
 
-        # Retrieve the conversation history from the state (via LangGraph, not from memory directly)
-        state = graph.get_state(thread_id="1")  # You may need to customize this if you're managing multiple users
-        conversation_history = state.get("messages", [])  # Get the list of messages from the state
+        # Retrieve the conversation history from the state (without 'thread_id')
+        state = graph.get_state()  # No thread_id argument
+
+        # Get the list of messages from the state
+        conversation_history = state.get("messages", [])
 
         # Add the system message and user input to the conversation history
         if not conversation_history:
@@ -97,7 +99,7 @@ async def run_conversation(user_input: str):
         state["messages"] = conversation_history
 
         # Save the updated state back to the state graph
-        graph.update_state(thread_id="1", state=state)
+        graph.update_state(state)  # No thread_id argument
 
         return response.content  # Return the AI's response
 
