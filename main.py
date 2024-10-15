@@ -1,63 +1,104 @@
-import logging
 import os
-from fastapi import FastAPI
-from pydantic import BaseModel
-from openai import OpenAI
+import uuid
+import logging
+
 import httpx
+import requests
+from fastapi import FastAPI, Request
+from langchain_community.document_loaders import PyPDFLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain_openai import OpenAIEmbeddings  # Updated import for embeddings
+from langchain.chains import RetrievalQA
+from langchain_openai import ChatOpenAI
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI()
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Define OpenAI API key and initialize the embeddings model
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
-telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
-telegram_url = f"https://api.telegram.org/bot{telegram_token}"
+# Path to your folder with PDF documents
+PDF_FOLDER = "./sources"
 
-# Define the chatbot function to generate a response
-async def generate_response(user_query: str):
+
+# Function to load and process PDFs
+def load_pdfs_and_create_vectorstore(pdf_folder):
+    documents = []
+    for pdf_file in os.listdir(pdf_folder):
+        if pdf_file.endswith(".pdf"):
+            loader = PyPDFLoader(os.path.join(pdf_folder, pdf_file))
+            documents.extend(loader.load())
+
+    # Split the text into smaller chunks for embeddings
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    docs = text_splitter.split_documents(documents)
+
+    # Create Chroma vector store and store the documents
+    vectorstore = Chroma.from_documents(docs, embeddings)
+    return vectorstore
+
+
+# Load PDFs and create vector store
+vectorstore = load_pdfs_and_create_vectorstore(PDF_FOLDER)
+
+# Initialize the language model
+llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4")
+
+# Create the RetrievalQA chain
+qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstore.as_retriever())
+
+# In-memory storage for conversation history based on chat ID
+conversation_history = {}
+
+# Define the AI's role as a system message
+SYSTEM_MESSAGE = """
+You are a helpful assistant that specializes in assisting migrant workers with navigating and using the DBS Digibank app.
+Your goal is to provide clear, helpful, and concise instructions about the app, including features, common issues, and how to use it effectively.
+Be empathetic, patient, and focused on helping migrant workers.
+"""
+
+
+# Define the chatbot function to generate a response using RetrievalQA chain and conversation history
+async def generate_response(user_query: str, chat_id: str):
     try:
-        # Use the query to generate a response using GPT-4
-        gpt_response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": user_query}
-            ]
-        )
+        # Retrieve conversation history
+        history = conversation_history.get(chat_id, [])
 
-        # Return the GPT-4 generated answer using model_dump
-        return gpt_response.choices[0].message.content
+        # Combine the system message and conversation history into the prompt for the model
+        prompt = SYSTEM_MESSAGE + "\n"
+        for turn in history:
+            prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n"
+        prompt += f"User: {user_query}\n"
+
+        # Query the QA chain with the user's input + conversation history as context
+        response = qa_chain.run(prompt)
+
+        # Clean up the response: Remove "Bot:" from the start of the response if present
+        response = response.replace("Bot:", "").strip()
+
+        # Update conversation history
+        history.append({"user": user_query, "bot": response})
+        conversation_history[chat_id] = history
+
+        return response
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now."
 
-# Data model for handling the Telegram Webhook payload
-class TelegramWebhook(BaseModel):
-    update_id: int
-    message: dict
 
-# Root endpoint for testing
-@app.get("/")
-async def root():
-    return {"message": "Welcome to your Telegram GPT-4 Bot with OpenAI"}
+# Telegram bot token from BotFather
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# Endpoint for receiving Telegram messages via webhook
-@app.post("/webhook/")
-async def telegram_webhook(webhook: TelegramWebhook):
-    message = webhook.message.get("text", "")
-    chat_id = webhook.message["chat"]["id"]
 
-    # Run the conversation handler to get GPT-4's response
-    response_text = await generate_response(message)
-
-    # Send the generated response back to the user on Telegram
-    await send_message(chat_id, response_text)
-
-    return {"status": "ok"}
-
-# Utility function to send a message back to the Telegram user
-async def send_message(chat_id: int, text: str):
+# Send a message back to the user via Telegram API
+async def send_telegram_message(chat_id: str, text: str):
+    telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     payload = {
         "chat_id": chat_id,
         "text": text
@@ -65,6 +106,37 @@ async def send_message(chat_id: int, text: str):
     async with httpx.AsyncClient() as client:
         await client.post(f"{telegram_url}/sendMessage", json=payload)
 
+
+# Webhook endpoint for Telegram to send updates
+@app.post("/webhook/")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+
+    # Extract the message and chat ID from the Telegram update
+    message = data.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
+    user_query = message.get("text", "")
+
+    if chat_id and user_query:
+        # Generate a response using the chatbot logic
+        response_text = await generate_response(user_query, str(chat_id))
+
+        # Send the response back to the user via Telegram
+        send_telegram_message(chat_id, response_text)
+
+    return {"status": "ok"}
+
+
+# Set the Telegram webhook to point to your FastAPI server's endpoint
+@app.get("/set-webhook")
+async def set_webhook():
+    webhook_url = os.getenv("WEBHOOK_URL")  # Your FastAPI public URL
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
+    response = requests.post(url, json={"url": f"{webhook_url}/telegram-webhook"})
+    return response.json()
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
