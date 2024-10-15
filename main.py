@@ -131,6 +131,7 @@ async def send_telegram_message(chat_id: str, text: str, reply_markup=None):
         "chat_id": chat_id,
         "text": text,
         "reply_markup": reply_markup.to_dict() if reply_markup else None,
+        "parse_mode": "MarkdownV2"  # Ensure Telegram knows the message is in Markdown format
     }
     async with httpx.AsyncClient() as client:
         await client.post(telegram_url, json=payload)
