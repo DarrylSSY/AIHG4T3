@@ -2,12 +2,12 @@ import logging
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode, tools_condition
-from langchain.schema import HumanMessage, AIMessage
+from langchain.document_loaders import PyPDFLoader
+from langchain.vectorstores import FAISS
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.llms import OpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
 import httpx
 from typing import Annotated
 from typing_extensions import TypedDict
@@ -20,35 +20,44 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
 telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 
-# Initialize the GPT-4 chat model using LangChain's ChatOpenAI
-llm = ChatOpenAI(model_name="gpt-4", openai_api_key=openai_api_key)
+# Set your OpenAI API key
+os.environ["OPENAI_API_KEY"] = openai_api_key
 
-# Initialize LangGraph MemorySaver for memory persistence
-memory = MemorySaver()
+# Initialize LangChain models
+embedding_model = OpenAIEmbeddings()
+llm = OpenAI(model_name="gpt-4", openai_api_key=openai_api_key)
 
-# Define the state for the graph
-class State(TypedDict):
-    messages: Annotated[list, add_messages]
+# Load your PDFs and create a vector store
+pdf_folder = "path_to_your_pdf_folder"
+pdf_files = [os.path.join(pdf_folder, f) for f in os.listdir(pdf_folder) if f.endswith(".pdf")]
 
-# Build the state graph
-graph_builder = StateGraph(State)
+# Load and process the PDFs
+documents = []
+for pdf in pdf_files:
+    loader = PyPDFLoader(pdf)
+    documents.extend(loader.load_and_split())
 
-# Define the chatbot function
-def chatbot(state: State):
-    return {"messages": [llm.invoke(state["messages"])]}
+# Create embeddings for the documents and store in FAISS
+vector_store = FAISS.from_documents(documents, embedding_model)
+vector_store.save_local("faiss_index")
 
-# Add nodes to the graph
-graph_builder.add_node("chatbot", chatbot)
-tool_node = ToolNode(tools=[])
-graph_builder.add_node("tools", tool_node)
+# Define a prompt template for GPT-4
+prompt_template = PromptTemplate(
+    input_variables=["context", "query"],
+    template="Given the context below, answer the user's question.\n\nContext: {context}\n\nQuestion: {query}"
+)
 
-# Add edges to the graph
-graph_builder.add_conditional_edges("chatbot", tools_condition)
-graph_builder.add_edge("tools", "chatbot")
-graph_builder.add_edge(START, "chatbot")
+# Define the chatbot function to retrieve relevant info and generate a response
+async def generate_response(user_query: str):
+    # Retrieve relevant chunks from the vector store
+    docs = vector_store.similarity_search(user_query, k=5)
+    context = " ".join([doc.page_content for doc in docs])
 
-# Compile the graph with the MemorySaver checkpointer
-graph = graph_builder.compile(checkpointer=memory)
+    # Generate the response using GPT-4
+    chain = LLMChain(llm=llm, prompt=prompt_template)
+    response = chain.run({"context": context, "query": user_query})
+
+    return response
 
 # Data model for handling the Telegram Webhook payload
 class TelegramWebhook(BaseModel):
@@ -60,40 +69,6 @@ class TelegramWebhook(BaseModel):
 async def root():
     return {"message": "Welcome to your Telegram GPT-4 Bot with FastAPI"}
 
-# Basic endpoint for greeting
-@app.get("/hello/{name}")
-async def say_hello(name: str):
-    return {"message": f"Hello {name}"}
-
-# Function to handle the conversation with memory
-async def run_conversation(user_input: str):
-    try:
-        # Define the config with thread_id
-        config = {"configurable": {"thread_id": "1"}}
-
-        # Add a system message specifying the role of the chatbot
-        system_message = {
-            "role": "system",
-            "content": "You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app."
-        }
-
-        # Create the message structure with the system message and user input
-        conversation_messages = [
-            {"role": "system", "content": system_message["content"]},
-            {"role": "user", "content": user_input}
-        ]
-
-        # Generate a response from GPT-4 based on the input and past conversation
-        events = graph.stream({"messages": conversation_messages}, config, stream_mode="values")
-        response = ""
-        for event in events:
-            response = event["messages"][-1].content
-
-        return response
-    except Exception as e:
-        logging.error(f"Error in conversation: {e}")
-        return "Sorry, I am unable to respond right now."
-
 # Endpoint for receiving Telegram messages via webhook
 @app.post("/webhook/")
 async def telegram_webhook(webhook: TelegramWebhook):
@@ -101,7 +76,7 @@ async def telegram_webhook(webhook: TelegramWebhook):
     chat_id = webhook.message["chat"]["id"]
 
     # Run the conversation handler to get GPT-4's response
-    response_text = await run_conversation(message)
+    response_text = await generate_response(message)
 
     # Send the generated response back to the user on Telegram
     await send_message(chat_id, response_text)
