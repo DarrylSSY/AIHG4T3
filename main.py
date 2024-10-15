@@ -2,14 +2,15 @@ import logging
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-import openai
+from openai import OpenAI
 import httpx
 
 # Initialize FastAPI app
 app = FastAPI()
 
-# Set OpenAI API key
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
 telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 
@@ -17,7 +18,7 @@ telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 async def generate_response(user_query: str):
     try:
         # Use the query to generate a response using GPT-4
-        gpt_response = openai.ChatCompletion.create(
+        gpt_response = client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -25,8 +26,8 @@ async def generate_response(user_query: str):
             ]
         )
 
-        # Return the GPT-4 generated answer
-        return gpt_response['choices'][0]['message']['content']
+        # Return the GPT-4 generated answer using model_dump
+        return gpt_response.choices[0].message.content
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now."
