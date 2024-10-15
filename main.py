@@ -171,16 +171,34 @@ def create_reply_keyboard(follow_up_options):
 
 
 # Send a message back to the user via Telegram API with optional reply_markup
+# Send a message back to the user via Telegram API with optional reply_markup
 async def send_telegram_message(chat_id: str, text: str, reply_markup=None):
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
+    # Build the payload for the message
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "reply_markup": reply_markup.to_dict() if reply_markup else None,
-        "parse_mode": "MarkdownV2"  # Ensure Telegram knows the message is in MarkdownV2 format
+        "parse_mode": "MarkdownV2",  # Ensure Telegram knows the message is in MarkdownV2 format
     }
+
+    # Add reply_markup if provided
+    if reply_markup:
+        payload["reply_markup"] = reply_markup.to_dict()
+
+    # Log the payload for debugging
+    logging.info(f"Sending message to chat_id: {chat_id}, payload: {payload}")
+
+    # Send the message using Telegram API
     async with httpx.AsyncClient() as client:
-        await client.post(telegram_url, json=payload)
+        response = await client.post(telegram_url, json=payload)
+
+        # Log the response for debugging
+        logging.info(f"Telegram response: {response.status_code}, {response.json()}")
+
+        # Check if there was an error in the response
+        if response.status_code != 200:
+            logging.error(f"Failed to send message: {response.status_code}, {response.text}")
 
 
 # Webhook endpoint for Telegram to send updates
