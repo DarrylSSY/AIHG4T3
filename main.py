@@ -1,7 +1,6 @@
 import logging
 import os
 from fastapi import FastAPI
-from langchain_core.messages import SystemMessage
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
@@ -22,10 +21,7 @@ telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
 telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 
 # Initialize the GPT-4 chat model using LangChain's ChatOpenAI
-llm = ChatOpenAI(
-    model_name="gpt-4",
-    openai_api_key=openai_api_key
-)
+llm = ChatOpenAI(model_name="gpt-4", openai_api_key=openai_api_key)
 
 # Initialize LangGraph MemorySaver for memory persistence
 memory = MemorySaver()
@@ -34,16 +30,11 @@ memory = MemorySaver()
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-    def clear_messages(self):
-        self["messages"] = []
-
 # Build the state graph
 graph_builder = StateGraph(State)
 
 # Define the chatbot function
 def chatbot(state: State):
-    if not state["messages"]:
-        raise ValueError("Must write to at least one of ['messages']")
     return {"messages": [llm.invoke(state["messages"])]}
 
 # Add nodes to the graph
@@ -75,52 +66,30 @@ async def say_hello(name: str):
     return {"message": f"Hello {name}"}
 
 # Function to handle the conversation with memory
-# Ensure your node function returns updated state
-async def run_conversation(user_input: str, chat_id: int):
+async def run_conversation(user_input: str):
     try:
-        # Define the system message for role assignment
-        system_message = SystemMessage(content="You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app.")
+        # Define the config with thread_id
+        config = {"configurable": {"thread_id": "1"}}
 
-        # Get the user-specific state based on chat_id
-        config = {"configurable": {"thread_id": str(chat_id)}}
-        state_snapshot = graph.get_state(config)
+        # Generate a response from GPT-4 based on the input and past conversation
+        events = graph.stream({"messages": [("user", user_input)]}, config, stream_mode="values")
+        response = ""
+        for event in events:
+            response = event["messages"][-1].content
 
-        # Ensure the 'messages' key exists, if not, initialize it
-        conversation_history = state_snapshot.values.get("messages", [])
-        if not conversation_history:
-            conversation_history.append(system_message)
-
-        # Add the new user input as a HumanMessage
-        conversation_history.append(HumanMessage(content=user_input))
-
-        # Invoke the model asynchronously and generate a response
-        response = await llm.ainvoke(conversation_history)
-
-        # Add the AI's response to the conversation history
-        conversation_history.append(AIMessage(content=response.content))
-
-        # Update the state with the new conversation history
-        state_snapshot.values["messages"] = conversation_history
-
-        # Write the updated state back to the state graph
-        graph.update_state(config, state_snapshot)
-
-        # Return the generated response
-        return response.content
-
+        return response
     except Exception as e:
-        logging.error(f"Error during LLM invocation: {e}")
+        logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now."
-
 
 # Endpoint for receiving Telegram messages via webhook
 @app.post("/webhook/")
 async def telegram_webhook(webhook: TelegramWebhook):
     message = webhook.message.get("text", "")
-    chat_id = webhook.message["chat"]["id"]  # Retrieve the chat_id from the message
+    chat_id = webhook.message["chat"]["id"]
 
-    # Run the conversation handler to get GPT-4's response, passing the chat_id
-    response_text = await run_conversation(message, chat_id)
+    # Run the conversation handler to get GPT-4's response
+    response_text = await run_conversation(message)
 
     # Send the generated response back to the user on Telegram
     await send_message(chat_id, response_text)
