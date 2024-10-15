@@ -1,28 +1,34 @@
 import os
-from fastapi import FastAPI, Request
-import openai
-from langchain import OpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationChain
+from fastapi import FastAPI
+from dotenv import load_dotenv
 from pydantic import BaseModel
+from langchain_openai import ChatOpenAI
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain.schema import HumanMessage, AIMessage
 import httpx
 
 # Initialize FastAPI app
 app = FastAPI()
 
-# Set up environment variables for your API keys
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Load environment variables from .env file
+load_dotenv()
+
+# Get the API keys from the environment
+openai_api_key = os.getenv("OPENAI_API_KEY")
 telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
 telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 
-# Initialize conversation memory with LangChain
-memory = ConversationBufferMemory()
+# Initialize the GPT-4 chat model using LangChain's ChatOpenAI
+llm = ChatOpenAI(model_name="gpt-4", openai_api_key=openai_api_key)
 
-# Set up LangChain's conversation chain using GPT-4
-llm = OpenAI(model_name="gpt-4", openai_api_key=openai.api_key)
-conversation = ConversationChain(llm=llm, memory=memory)
+# Define a function to get session history
+def get_session_history():
+    return []
 
-# Data model for Telegram webhook
+# Initialize conversation memory with required arguments
+memory = RunnableWithMessageHistory(runnable=llm, get_session_history=get_session_history)
+
+# Data model for handling the Telegram Webhook payload
 class TelegramWebhook(BaseModel):
     update_id: int
     message: dict
@@ -32,26 +38,43 @@ class TelegramWebhook(BaseModel):
 async def root():
     return {"message": "Welcome to your Telegram GPT-4 Bot with FastAPI"}
 
-# Basic endpoint for greeting (already existing)
+# Basic endpoint for greeting
 @app.get("/hello/{name}")
 async def say_hello(name: str):
     return {"message": f"Hello {name}"}
 
-# Endpoint for Telegram to send messages to (webhook URL)
+# Function to handle the conversation with memory
+async def run_conversation(user_input: str):
+    # Get the previous conversation history from memory
+    conversation_history = memory.get_history()
+
+    # Generate a response from GPT-4 based on the input and past conversation
+    response = await llm.agenerate(
+        [HumanMessage(user_input)],
+        previous_messages=conversation_history
+    )
+
+    # Update memory with the new conversation
+    memory.add_message(HumanMessage(user_input))
+    memory.add_message(AIMessage(response))
+
+    return response
+
+# Endpoint for receiving Telegram messages via webhook
 @app.post("/webhook/")
 async def telegram_webhook(webhook: TelegramWebhook):
     message = webhook.message.get("text", "")
     chat_id = webhook.message["chat"]["id"]
 
-    # Generate a response using GPT-4 with LangChain memory
-    response_text = conversation.run(message)
+    # Run the conversation handler to get GPT-4's response
+    response_text = await run_conversation(message)
 
-    # Send the response back to the user via Telegram
+    # Send the generated response back to the user on Telegram
     await send_message(chat_id, response_text)
 
     return {"status": "ok"}
 
-# Utility function to send a message back to Telegram user
+# Utility function to send a message back to the Telegram user
 async def send_message(chat_id: int, text: str):
     payload = {
         "chat_id": chat_id,
