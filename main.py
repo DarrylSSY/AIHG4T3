@@ -3,9 +3,14 @@ import os
 from fastapi import FastAPI
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
-from langchain_core.runnables.history import RunnableWithMessageHistory
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
 from langchain.schema import HumanMessage, AIMessage
 import httpx
+from typing import Annotated
+from typing_extensions import TypedDict
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -18,14 +23,32 @@ telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 # Initialize the GPT-4 chat model using LangChain's ChatOpenAI
 llm = ChatOpenAI(model_name="gpt-4", openai_api_key=openai_api_key)
 
-# Define a function to get session history
-def get_session_history():
-    # Example: Return a list of HumanMessage and AIMessage objects
-    return [HumanMessage(content="Hello"), AIMessage(content="Hi, how can I help you?")]
+# Initialize LangGraph MemorySaver for memory persistence
+memory = MemorySaver()
 
+# Define the state for the graph
+class State(TypedDict):
+    messages: Annotated[list, add_messages]
 
-# Initialize conversation memory with required arguments
-memory = RunnableWithMessageHistory(runnable=llm, get_session_history=get_session_history)
+# Build the state graph
+graph_builder = StateGraph(State)
+
+# Define the chatbot function
+def chatbot(state: State):
+    return {"messages": [llm.invoke(state["messages"])]}
+
+# Add nodes to the graph
+graph_builder.add_node("chatbot", chatbot)
+tool_node = ToolNode(tools=[])
+graph_builder.add_node("tools", tool_node)
+
+# Add edges to the graph
+graph_builder.add_conditional_edges("chatbot", tools_condition)
+graph_builder.add_edge("tools", "chatbot")
+graph_builder.add_edge(START, "chatbot")
+
+# Compile the graph with the MemorySaver checkpointer
+graph = graph_builder.compile(checkpointer=memory)
 
 # Data model for handling the Telegram Webhook payload
 class TelegramWebhook(BaseModel):
@@ -44,18 +67,17 @@ async def say_hello(name: str):
 
 # Function to handle the conversation with memory
 async def run_conversation(user_input: str):
-    # Get the previous conversation history from memory
     try:
-        conversation_history = memory.get_session_history()
-        logging.info(f"Input to LLM: {user_input}, history: {conversation_history}")
+        # Define the config with thread_id
+        config = {"configurable": {"thread_id": "1"}}
+
         # Generate a response from GPT-4 based on the input and past conversation
-        response = await llm.invoke([HumanMessage(content=user_input)], previous_messages=conversation_history)
+        events = graph.stream({"messages": [("user", user_input)]}, config, stream_mode="values")
+        response = ""
+        for event in events:
+            response = event["messages"][-1].content
 
-        # Update memory with the new conversation
-        memory.add_message(HumanMessage(content=user_input))
-        memory.add_message(AIMessage(content=response.content))
-
-        return response.content
+        return response
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now."
