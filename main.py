@@ -12,6 +12,7 @@ from langchain_openai import ChatOpenAI
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from dotenv import load_dotenv
 import re
+import json
 
 # Load environment variables from .env file
 load_dotenv()
