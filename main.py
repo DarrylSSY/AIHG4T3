@@ -28,7 +28,7 @@ PDF_FOLDER = "./sources"
 
 def escape_markdown(text: str) -> str:
     """Escapes special characters in text for Markdown v2 formatting."""
-    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    escape_chars = r'_[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 # Function to load and process PDFs
@@ -121,7 +121,7 @@ async def send_telegram_message(chat_id: str, text: str, reply_markup=None):
         "chat_id": chat_id,
         "text": text,
         "reply_markup": reply_markup.to_dict() if reply_markup else None,
-        "parse_mode": "MarkdownV2"  # Ensure Telegram knows the message is in Markdown format
+        "parse_mode": "MarkdownV2"  # Ensure Telegram knows the message is in MarkdownV2 format
     }
     async with httpx.AsyncClient() as client:
         await client.post(telegram_url, json=payload)
