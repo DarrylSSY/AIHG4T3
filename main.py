@@ -2,14 +2,14 @@ import os
 import uuid
 import logging
 import httpx
-import requests
 from fastapi import FastAPI, Request
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain_openai import OpenAIEmbeddings  # Updated import for embeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain.chains import RetrievalQA
 from langchain_openai import ChatOpenAI
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -63,7 +63,7 @@ Be empathetic, patient, and focused on helping migrant workers.
 """
 
 
-# Define the chatbot function to generate a response using RetrievalQA chain and conversation history
+# Modify the generate_response function to include options
 async def generate_response(user_query: str, chat_id: str):
     try:
         # Retrieve conversation history
@@ -75,32 +75,52 @@ async def generate_response(user_query: str, chat_id: str):
             prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n"
         prompt += f"User: {user_query}\n"
 
-        # Query the QA chain with the user's input + conversation history as context
+        # Query the QA chain with the user's input
         response = qa_chain.run(prompt)
 
-        # Clean up the response: Remove "Bot:" from the start of the response if present
-        response = response.replace("Bot:", "").strip()
+        # Define follow-up options based on the AI's response
+        if "bank account" in response.lower():
+            follow_up_options = ["How to open a bank account?", "Requirements for opening an account"]
+        elif "transfer money" in response.lower():
+            follow_up_options = ["How to transfer money?", "Fees for transferring money"]
+        else:
+            follow_up_options = ["Help with other issues", "Contact support"]
 
         # Update conversation history
         history.append({"user": user_query, "bot": response})
         conversation_history[chat_id] = history
 
-        return response
+        return response, follow_up_options
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
-        return "Sorry, I am unable to respond right now."
+        return "Sorry, I am unable to respond right now.", []
+
+
+# Function to create inline keyboard based on AI's follow-up options
+def create_inline_keyboard(follow_up_options):
+    keyboard = [
+        [InlineKeyboardButton(option, callback_data=option) for option in follow_up_options]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+# Function to create reply keyboard based on AI's follow-up options
+def create_reply_keyboard(follow_up_options):
+    keyboard = [[option] for option in follow_up_options]
+    return ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
 
 
 # Telegram bot token from BotFather
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 
-# Send a message back to the user via Telegram API
-async def send_telegram_message(chat_id: str, text: str):
+# Send a message back to the user via Telegram API with optional reply_markup
+async def send_telegram_message(chat_id: str, text: str, reply_markup=None):
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": text
+        "text": text,
+        "reply_markup": reply_markup.to_dict() if reply_markup else None,
     }
     async with httpx.AsyncClient() as client:
         await client.post(telegram_url, json=payload)
@@ -117,11 +137,22 @@ async def telegram_webhook(request: Request):
     user_query = message.get("text", "")
 
     if chat_id and user_query:
-        # Generate a response using the chatbot logic
-        response_text = await generate_response(user_query, str(chat_id))
+        # Generate a response using the chatbot logic (which also returns follow-up options)
+        response_text, follow_up_options = await generate_response(user_query, str(chat_id))
+
+        # Choose between Inline or Reply Keyboard based on context
+        if len(follow_up_options) > 0:
+            if user_query.startswith("/start"):
+                # Use Inline Keyboard for "/start" command
+                reply_markup = create_inline_keyboard(follow_up_options)
+            else:
+                # Use Reply Keyboard for other queries
+                reply_markup = create_reply_keyboard(follow_up_options)
+        else:
+            reply_markup = None
 
         # Send the response back to the user via Telegram
-        await send_telegram_message(chat_id, response_text)
+        await send_telegram_message(chat_id, response_text, reply_markup)
 
     return {"status": "ok"}
 
