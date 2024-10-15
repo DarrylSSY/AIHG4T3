@@ -68,7 +68,7 @@ Your goal is to provide clear, helpful, and concise instructions about the app, 
 Be empathetic, patient, and focused on helping migrant workers.
 """
 
-# Modify the generate_response function to include options based on certain keywords in the response
+# Modify the generate_response function to use the correct input key 'query'
 async def generate_response(user_query: str, chat_id: str):
     try:
         # Retrieve conversation history and limit to last 3 exchanges to avoid overwhelming the model
@@ -80,8 +80,8 @@ async def generate_response(user_query: str, chat_id: str):
             prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n---\n"
         prompt += f"User: {user_query}\n"
 
-        # Query the QA chain with the user's input + conversation history as context
-        response = qa_chain.invoke({"input": prompt})  # Use invoke() instead of run()
+        # Query the QA chain with the correct input key 'query' (not 'input')
+        response = qa_chain.invoke({"query": prompt})  # Use 'query' instead of 'input'
         response_text = str(response)  # Ensure response is a string
 
         # Define follow-up options based on keywords in the response
@@ -140,6 +140,7 @@ async def generate_response(user_query: str, chat_id: str):
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now.", []
+
 
 # Function to create reply keyboard based on AI's follow-up options
 def create_reply_keyboard(follow_up_options):
