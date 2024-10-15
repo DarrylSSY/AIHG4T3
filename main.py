@@ -40,8 +40,6 @@ class State(TypedDict):
 # Build the state graph
 graph_builder = StateGraph(State)
 
-
-# Define the chatbot function
 # Define the chatbot function
 def chatbot(state: State):
     return {"messages": [llm.invoke(state["messages"])]}
@@ -109,8 +107,6 @@ async def run_conversation(user_input: str, chat_id: int):
         logging.error(f"Error during LLM invocation: {e}")
         return "Sorry, I am unable to respond right now."
 
-
-
 # Endpoint for receiving Telegram messages via webhook
 @app.post("/webhook/")
 async def telegram_webhook(webhook: TelegramWebhook):
@@ -124,8 +120,6 @@ async def telegram_webhook(webhook: TelegramWebhook):
     await send_message(chat_id, response_text)
 
     return {"status": "ok"}
-
-
 
 # Utility function to send a message back to the Telegram user
 async def send_message(chat_id: int, text: str):
