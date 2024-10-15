@@ -75,39 +75,35 @@ async def say_hello(name: str):
     return {"message": f"Hello {name}"}
 
 # Function to handle the conversation with memory
+# Ensure your node function returns updated state
 async def run_conversation(user_input: str, chat_id: int):
     try:
-        # Define the system message (role assignment)
-        system_message = SystemMessage(content="You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app.")
+        # Define the system message
+        system_message = SystemMessage(content="You are a DBS digibank chatbot guide.")
 
-        # Define the configuration for the state (with user-specific information)
         config = {"configurable": {"thread_id": str(chat_id)}}
-
-        # Retrieve the conversation state for the current user
         state_snapshot = graph.get_state(config)
 
-        # Access the conversation history from the state_snapshot
-        conversation_history = state_snapshot.values.get("messages", [])  # Use .values to access state data
+        conversation_history = state_snapshot.values.get("messages", [])
 
-        # Add the system message and the user input to the conversation history
         if not conversation_history:
             conversation_history.append(system_message)
 
         conversation_history.append(HumanMessage(user_input))
 
-        # Await the LLM invocation (async operation)
-        response = await llm.ainvoke(conversation_history)  # Correct async method
+        # Invoke the model asynchronously
+        response = await llm.ainvoke(conversation_history)
 
-        # Add the AI's response to the conversation history using .content
-        conversation_history.append(AIMessage(content=response.content))  # Access content attribute
+        # Add the AI response to the conversation history
+        conversation_history.append(AIMessage(content=response.content))
 
-        # Update the conversation history in the state graph
+        # **Update the state** with the new conversation history
         state_snapshot.values["messages"] = conversation_history
 
-        # Save the updated state back to the state graph, keyed by chat_id
+        # Write back the updated state
         graph.update_state(config, state_snapshot)
 
-        return response.content  # Return the AI's response
+        return response.content
 
     except Exception as e:
         logging.error(f"Error during LLM invocation: {e}")
