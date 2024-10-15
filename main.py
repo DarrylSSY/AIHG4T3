@@ -71,8 +71,20 @@ async def run_conversation(user_input: str):
         # Define the config with thread_id
         config = {"configurable": {"thread_id": "1"}}
 
+        # Add a system message specifying the role of the chatbot
+        system_message = {
+            "role": "system",
+            "content": "You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app."
+        }
+
+        # Create the message structure with the system message and user input
+        conversation_messages = [
+            {"role": "system", "content": system_message["content"]},
+            {"role": "user", "content": user_input}
+        ]
+
         # Generate a response from GPT-4 based on the input and past conversation
-        events = graph.stream({"messages": [("user", user_input)]}, config, stream_mode="values")
+        events = graph.stream({"messages": conversation_messages}, config, stream_mode="values")
         response = ""
         for event in events:
             response = event["messages"][-1].content
