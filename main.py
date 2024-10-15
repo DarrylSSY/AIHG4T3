@@ -11,6 +11,7 @@ from langchain.chains import RetrievalQA
 from langchain_openai import ChatOpenAI
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from dotenv import load_dotenv
+import re
 
 # Load environment variables from .env file
 load_dotenv()
@@ -24,6 +25,11 @@ embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
 # Path to your folder with PDF documents
 PDF_FOLDER = "./sources"
+
+
+def escape_markdown(text: str) -> str:
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 
 # Function to load and process PDFs
@@ -105,7 +111,6 @@ async def generate_response(user_query: str, chat_id: str):
         return "Sorry, I am unable to respond right now.", []
 
 
-
 # Function to create inline keyboard based on AI's follow-up options
 def create_inline_keyboard(follow_up_options):
     keyboard = [
@@ -151,6 +156,9 @@ async def telegram_webhook(request: Request):
         # Generate a response using the chatbot logic (which also returns follow-up options)
         response_text, follow_up_options = await generate_response(user_query, str(chat_id))
 
+        # Escape special characters in the response for Markdown formatting
+        response_text = escape_markdown(response_text)
+
         # Choose between Inline or Reply Keyboard based on context
         if len(follow_up_options) > 0:
             if user_query.startswith("/start"):
@@ -162,7 +170,7 @@ async def telegram_webhook(request: Request):
         else:
             reply_markup = None
 
-        # Send the response back to the user via Telegram
+        # Send the response back to the user via Telegram with Markdown parsing
         await send_telegram_message(chat_id, response_text, reply_markup)
 
     return {"status": "ok"}
