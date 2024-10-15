@@ -96,13 +96,10 @@ async def run_conversation(user_input: str, chat_id: int):
         conversation_history.append(HumanMessage(user_input))
 
         # Await the LLM invocation (async operation)
-        response = await llm.ainvoke(conversation_history)  # Correct usage of ainvoke for async handling
+        response = await llm.ainvoke(conversation_history)  # Correct async method
 
-        # Extract content from the AIMessage object
-        response_content = response.content
-
-        # Add the AI's response to the conversation history
-        conversation_history.append(AIMessage(content=response_content))  # No need to subscript here
+        # Add the AI's response to the conversation history using .content
+        conversation_history.append(AIMessage(content=response.content))  # Access content attribute
 
         # Update the conversation history in the state graph
         state_snapshot.values["messages"] = conversation_history
@@ -110,7 +107,7 @@ async def run_conversation(user_input: str, chat_id: int):
         # Save the updated state back to the state graph, keyed by chat_id
         graph.update_state(config, state_snapshot)
 
-        return response_content  # Return the AI's response content
+        return response.content  # Return the AI's response
 
     except Exception as e:
         logging.error(f"Error during LLM invocation: {e}")
