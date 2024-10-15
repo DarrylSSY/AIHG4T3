@@ -1,6 +1,5 @@
 import os
 from fastapi import FastAPI
-from dotenv import load_dotenv
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables.history import RunnableWithMessageHistory
@@ -9,9 +8,6 @@ import httpx
 
 # Initialize FastAPI app
 app = FastAPI()
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Get the API keys from the environment
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -82,3 +78,7 @@ async def send_message(chat_id: int, text: str):
     }
     async with httpx.AsyncClient() as client:
         await client.post(f"{telegram_url}/sendMessage", json=payload)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
