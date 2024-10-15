@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI
 from pydantic import BaseModel
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import FAISS
+from langchain_community.vectorstores import Chroma
 from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_community.llms import OpenAI
 from langchain.chains import LLMChain
@@ -37,10 +37,15 @@ for pdf in pdf_files:
     loader = PyPDFLoader(pdf)
     documents.extend(loader.load_and_split())
 
-# Create embeddings for the documents and store in FAISS
+# Create embeddings for the documents and store in Chroma
 embedding_model = OpenAIEmbeddings()
-vector_store = FAISS.from_documents(documents, embedding_model)
-vector_store.save_local("faiss_index")
+persist_directory = './chroma_storage'  # Directory to store Chroma data
+vector_store = Chroma.from_documents(
+    documents=documents,
+    embedding=embedding_model,
+    persist_directory=persist_directory
+)
+vector_store.persist()  # Ensure the data is saved to disk
 
 # Define a prompt template for GPT-4
 prompt_template = PromptTemplate(
@@ -50,12 +55,14 @@ prompt_template = PromptTemplate(
 
 # Define the chatbot function to retrieve relevant info and generate a response
 async def generate_response(user_query: str):
-    # Retrieve relevant chunks from the vector store
-    docs = vector_store.similarity_search(user_query, k=5)
+    # Retrieve relevant chunks from the Chroma vector store
+    retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 5})
+    docs = retriever.get_relevant_documents(user_query)
     context = " ".join([doc.page_content for doc in docs])
 
     # Generate the response using GPT-4
-    chain = LLMChain(llm=OpenAI(model_name="gpt-4"), prompt=prompt_template)
+    llm = OpenAI(model_name="gpt-4")
+    chain = LLMChain(llm=llm, prompt=prompt_template)
     response = chain.run({"context": context, "query": user_query})
 
     return response
