@@ -1,7 +1,6 @@
 import os
 import uuid
 import logging
-
 import httpx
 import requests
 from fastapi import FastAPI, Request
@@ -98,13 +97,13 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # Send a message back to the user via Telegram API
 async def send_telegram_message(chat_id: str, text: str):
-    telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+    telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text
     }
     async with httpx.AsyncClient() as client:
-        await client.post(f"{telegram_url}/sendMessage", json=payload)
+        await client.post(telegram_url, json=payload)
 
 
 # Webhook endpoint for Telegram to send updates
@@ -122,21 +121,21 @@ async def telegram_webhook(request: Request):
         response_text = await generate_response(user_query, str(chat_id))
 
         # Send the response back to the user via Telegram
-        send_telegram_message(chat_id, response_text)
+        await send_telegram_message(chat_id, response_text)
 
     return {"status": "ok"}
 
 
-# Set the Telegram webhook to point to your FastAPI server's endpoint
-@app.get("/set-webhook")
-async def set_webhook():
-    webhook_url = os.getenv("WEBHOOK_URL")  # Your FastAPI public URL
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
-    response = requests.post(url, json={"url": f"{webhook_url}/telegram-webhook"})
-    return response.json()
+# Health check endpoint for diagnostics
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
 
 
+# Run the FastAPI app on the correct port for Railway
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Railway will dynamically assign a port, default to 8000 if not found
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
