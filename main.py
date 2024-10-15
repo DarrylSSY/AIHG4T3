@@ -74,32 +74,31 @@ async def generate_response(user_query: str, chat_id: str):
         # Retrieve conversation history and limit to last 3 exchanges to avoid overwhelming the model
         history = conversation_history.get(chat_id, [])[-3:]
 
-        # Modify the prompt to explicitly ask the AI to generate follow-up options as a list
-        prompt = SYSTEM_MESSAGE + "\n\n"  # Add the system message at the start
+        # Modify the prompt to explicitly ask the AI to generate a JSON-formatted response
+        prompt = SYSTEM_MESSAGE + "\n\n"
         for turn in history:
             prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n---\n"
         prompt += f"User: {user_query}\n"
 
-        # Add a new instruction for the AI to generate follow-up options in a list format
-        prompt += "Please answer the user's query and then provide 2-3 follow-up questions or actions as a list. Format follow-up suggestions as a bullet-point list:\n- Suggestion 1\n- Suggestion 2\n"
+        # Instruct AI to respond in JSON format
+        prompt += 'Please respond in the following JSON format:\n'
+        prompt += '{"response": "<main response>", "options": ["<follow-up question 1>", "<follow-up question 2>"]}\n'
 
         # Query the QA chain with the user's input + conversation history as context
         response = qa_chain.run(prompt)
 
-        # Separate the main response from the follow-up options
-        if "-" in response:
-            # Assuming the AI responds in the format: "Main response... - Suggestion 1, - Suggestion 2"
-            response_text, follow_up_part = response.split("-", 1)
-            follow_up_options = ["-" + option.strip() for option in follow_up_part.split("-") if option.strip()]
-        else:
-            # Default response if no follow-up suggestions are found
-            response_text = response
-            follow_up_options = ["Help with other issues", "Contact support"]
+        # Attempt to parse the response as JSON
+        try:
+            response_json = json.loads(response)  # Parse the AI's response as JSON
+            response_text = response_json.get('response', 'Sorry, something went wrong.')
+            follow_up_options = response_json.get('options', [])
+        except json.JSONDecodeError:
+            # If there's an issue with the JSON response, return a fallback message
+            response_text = "Sorry, I couldn't understand the response format."
+            follow_up_options = []
 
-        # Clean up the response: Remove "Bot:" from the start of the response if present
+        # Clean up the response (if needed) and update the conversation history
         response_text = response_text.replace("Bot:", "").strip()
-
-        # Update conversation history with the latest interaction
         history.append({"user": user_query, "bot": response_text})
         conversation_history[chat_id] = history
 
@@ -160,7 +159,6 @@ async def telegram_webhook(request: Request):
 
         # Choose between Inline or Reply Keyboard based on context
         if len(follow_up_options) > 0:
-            # We assume here that you'll always want to use inline keyboards for follow-up suggestions
             reply_markup = create_inline_keyboard(follow_up_options)
         else:
             reply_markup = None
