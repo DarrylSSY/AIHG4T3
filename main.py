@@ -8,7 +8,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain.chains import RetrievalQA
 from langchain_openai import ChatOpenAI
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import ReplyKeyboardMarkup
 from dotenv import load_dotenv
 import re
 import json
@@ -51,7 +51,7 @@ def load_pdfs_and_create_vectorstore(pdf_folder):
 vectorstore = load_pdfs_and_create_vectorstore(PDF_FOLDER)
 
 # Initialize the language model
-llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o-mini")
+llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o")
 
 # Create the RetrievalQA chain
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstore.as_retriever())
@@ -105,13 +105,11 @@ async def generate_response(user_query: str, chat_id: str):
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now.", []
 
-# Function to create inline keyboard based on AI's follow-up options
-def create_inline_keyboard(follow_up_options):
-    """Create an inline keyboard with the follow-up options provided by the AI."""
-    keyboard = [
-        [InlineKeyboardButton(option, callback_data=option) for option in follow_up_options]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+# Function to create reply keyboard based on AI's follow-up options
+def create_reply_keyboard(follow_up_options):
+    """Create a reply keyboard with the follow-up options provided by the AI."""
+    keyboard = [[option] for option in follow_up_options]  # Create buttons in a list format
+    return ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
 
 # Telegram bot token from BotFather
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -145,9 +143,9 @@ async def telegram_webhook(request: Request):
         # Escape special characters in the response for Markdown formatting
         response_text = escape_markdown(response_text)
 
-        # Use Inline Keyboard with follow-up options
+        # Use Reply Keyboard with follow-up options
         if len(follow_up_options) > 0:
-            reply_markup = create_inline_keyboard(follow_up_options)
+            reply_markup = create_reply_keyboard(follow_up_options)
         else:
             reply_markup = None
 
