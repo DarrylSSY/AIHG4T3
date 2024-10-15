@@ -96,10 +96,10 @@ async def run_conversation(user_input: str, chat_id: int):
         conversation_history.append(HumanMessage(user_input))
 
         # Await the LLM invocation (async operation)
-        response = await llm.invoke(conversation_history)
+        response = await llm.ainvoke(conversation_history)  # Use ainvoke for async handling
 
         # Add the AI's response to the conversation history
-        conversation_history.append(AIMessage(response.content))  # No need to await here
+        conversation_history.append(AIMessage(content=response["content"]))  # No need to await here
 
         # Update the conversation history in the state graph
         state_snapshot.values["messages"] = conversation_history
@@ -107,11 +107,12 @@ async def run_conversation(user_input: str, chat_id: int):
         # Save the updated state back to the state graph, keyed by chat_id
         graph.update_state(config, state_snapshot)
 
-        return response.content  # Return the AI's response
+        return response["content"]  # Return the AI's response
 
     except Exception as e:
         logging.error(f"Error during LLM invocation: {e}")
         return "Sorry, I am unable to respond right now."
+
 
 
 # Endpoint for receiving Telegram messages via webhook
