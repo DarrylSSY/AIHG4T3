@@ -1,3 +1,4 @@
+import logging
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -19,7 +20,9 @@ llm = ChatOpenAI(model_name="gpt-4", openai_api_key=openai_api_key)
 
 # Define a function to get session history
 def get_session_history():
-    return []
+    # Example: Return a list of HumanMessage and AIMessage objects
+    return [HumanMessage(content="Hello"), AIMessage(content="Hi, how can I help you?")]
+
 
 # Initialize conversation memory with required arguments
 memory = RunnableWithMessageHistory(runnable=llm, get_session_history=get_session_history)
@@ -42,16 +45,20 @@ async def say_hello(name: str):
 # Function to handle the conversation with memory
 async def run_conversation(user_input: str):
     # Get the previous conversation history from memory
-    conversation_history = memory.get_session_history
+    try:
+        conversation_history = memory.get_session_history()
+        logging.info(f"Input to LLM: {user_input}, history: {conversation_history}")
+        # Generate a response from GPT-4 based on the input and past conversation
+        response = await llm.invoke([HumanMessage(content=user_input)], previous_messages=conversation_history)
 
-    # Generate a response from GPT-4 based on the input and past conversation
-    response = await llm.invoke([HumanMessage(user_input)], previous_messages=conversation_history)
+        # Update memory with the new conversation
+        memory.add_message(HumanMessage(content=user_input))
+        memory.add_message(AIMessage(content=response.content))
 
-    # Update memory with the new conversation
-    memory.add_message(HumanMessage(user_input))
-    memory.add_message(AIMessage(response))
-
-    return response
+        return response.content
+    except Exception as e:
+        logging.error(f"Error in conversation: {e}")
+        return "Sorry, I am unable to respond right now."
 
 # Endpoint for receiving Telegram messages via webhook
 @app.post("/webhook/")
