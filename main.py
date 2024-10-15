@@ -2,12 +2,7 @@ import logging
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import Chroma
-from langchain_openai.embeddings import OpenAIEmbeddings
-from langchain_community.llms import OpenAI
-from langchain.chains import LLMChain
-from langchain.prompts import PromptTemplate
+import openai  # For interacting with OpenAI's vector store and GPT models
 import httpx
 from typing import Annotated
 from typing_extensions import TypedDict
@@ -21,61 +16,50 @@ telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
 telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 
 # Set your OpenAI API key
-os.environ["OPENAI_API_KEY"] = openai_api_key
+openai.api_key = openai_api_key
 
-# Ensure the correct folder is set for PDFs
-pdf_folder = "sources"
-if not os.path.exists(pdf_folder):
-    raise FileNotFoundError(f"PDF folder '{pdf_folder}' not found.")
-
-# Load your PDFs and create a vector store
-pdf_files = [os.path.join(pdf_folder, f) for f in os.listdir(pdf_folder) if f.endswith(".pdf")]
-
-# Load and process the PDFs
-documents = []
-for pdf in pdf_files:
-    loader = PyPDFLoader(pdf)
-    documents.extend(loader.load_and_split())
-
-# Create embeddings for the documents and store in Chroma
-embedding_model = OpenAIEmbeddings()
-persist_directory = './chroma_storage'  # Directory to store Chroma data
-vector_store = Chroma.from_documents(
-    documents=documents,
-    embedding=embedding_model,
-    persist_directory=persist_directory
-)
-vector_store.persist()  # Ensure the data is saved to disk
-
-# Define a prompt template for GPT-4
-prompt_template = PromptTemplate(
-    input_variables=["context", "query"],
-    template="Given the context below, answer the user's question.\n\nContext: {context}\n\nQuestion: {query}"
-)
 
 # Define the chatbot function to retrieve relevant info and generate a response
 async def generate_response(user_query: str):
-    # Retrieve relevant chunks from the Chroma vector store
-    retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 5})
-    docs = retriever.get_relevant_documents(user_query)
-    context = " ".join([doc.page_content for doc in docs])
+    try:
+        # Use OpenAI's Search API with the new vector store (assuming you've set it up)
+        # Call OpenAI's API to retrieve the relevant documents
+        response = openai.Engine("text-embedding-ada-002").search(
+            documents=[],  # Assuming documents have been uploaded already to OpenAI vector store
+            query=user_query,
+        )
 
-    # Generate the response using GPT-4
-    llm = OpenAI(model_name="gpt-4")
-    chain = LLMChain(llm=llm, prompt=prompt_template)
-    response = chain.run({"context": context, "query": user_query})
+        # The response will include retrieved documents which are most relevant to the query
+        # Format the documents or content into a response
+        retrieved_content = " ".join([doc['text'] for doc in response['data']])
 
-    return response
+        # Use GPT-4 to generate a response based on the retrieved content and user query
+        gpt_response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": f"Context: {retrieved_content}. Question: {user_query}"},
+            ]
+        )
+
+        # Return the GPT-4 generated answer
+        return gpt_response['choices'][0]['message']['content']
+    except Exception as e:
+        logging.error(f"Error in conversation: {e}")
+        return "Sorry, I am unable to respond right now."
+
 
 # Data model for handling the Telegram Webhook payload
 class TelegramWebhook(BaseModel):
     update_id: int
     message: dict
 
+
 # Root endpoint for testing
 @app.get("/")
 async def root():
-    return {"message": "Welcome to your Telegram GPT-4 Bot with FastAPI"}
+    return {"message": "Welcome to your Telegram GPT-4 Bot with OpenAI Storage"}
+
 
 # Endpoint for receiving Telegram messages via webhook
 @app.post("/webhook/")
@@ -91,6 +75,7 @@ async def telegram_webhook(webhook: TelegramWebhook):
 
     return {"status": "ok"}
 
+
 # Utility function to send a message back to the Telegram user
 async def send_message(chat_id: int, text: str):
     payload = {
@@ -100,6 +85,8 @@ async def send_message(chat_id: int, text: str):
     async with httpx.AsyncClient() as client:
         await client.post(f"{telegram_url}/sendMessage", json=payload)
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
