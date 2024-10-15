@@ -2,10 +2,10 @@ import logging
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-from langchain.document_loaders import PyPDFLoader
-from langchain.vectorstores import FAISS
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.llms import OpenAI
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import FAISS
+from langchain_openai.embeddings import OpenAIEmbeddings
+from langchain_community.llms import OpenAI
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 import httpx
@@ -23,12 +23,12 @@ telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 # Set your OpenAI API key
 os.environ["OPENAI_API_KEY"] = openai_api_key
 
-# Initialize LangChain models
-embedding_model = OpenAIEmbeddings()
-llm = OpenAI(model_name="gpt-4", openai_api_key=openai_api_key)
+# Ensure the correct folder is set for PDFs
+pdf_folder = "sources"
+if not os.path.exists(pdf_folder):
+    raise FileNotFoundError(f"PDF folder '{pdf_folder}' not found.")
 
 # Load your PDFs and create a vector store
-pdf_folder = "path_to_your_pdf_folder"
 pdf_files = [os.path.join(pdf_folder, f) for f in os.listdir(pdf_folder) if f.endswith(".pdf")]
 
 # Load and process the PDFs
@@ -38,6 +38,7 @@ for pdf in pdf_files:
     documents.extend(loader.load_and_split())
 
 # Create embeddings for the documents and store in FAISS
+embedding_model = OpenAIEmbeddings()
 vector_store = FAISS.from_documents(documents, embedding_model)
 vector_store.save_local("faiss_index")
 
@@ -54,7 +55,7 @@ async def generate_response(user_query: str):
     context = " ".join([doc.page_content for doc in docs])
 
     # Generate the response using GPT-4
-    chain = LLMChain(llm=llm, prompt=prompt_template)
+    chain = LLMChain(llm=OpenAI(model_name="gpt-4"), prompt=prompt_template)
     response = chain.run({"context": context, "query": user_query})
 
     return response
