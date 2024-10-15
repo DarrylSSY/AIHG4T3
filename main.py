@@ -64,36 +64,46 @@ Be empathetic, patient, and focused on helping migrant workers.
 
 
 # Modify the generate_response function to include options
+# Modify the generate_response function to have AI generate follow-up options
 async def generate_response(user_query: str, chat_id: str):
     try:
-        # Retrieve conversation history
-        history = conversation_history.get(chat_id, [])
+        # Retrieve conversation history and limit to last 3 exchanges to avoid overwhelming the model
+        history = conversation_history.get(chat_id, [])[-3:]
 
-        # Combine the system message and conversation history into the prompt for the model
-        prompt = SYSTEM_MESSAGE + "\n"
+        # Modify the prompt to explicitly ask the AI to generate follow-up options
+        prompt = SYSTEM_MESSAGE + "\n\n"  # Add the system message at the start
         for turn in history:
-            prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n"
+            prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n---\n"
         prompt += f"User: {user_query}\n"
 
-        # Query the QA chain with the user's input
+        # Add a new instruction for the AI to generate follow-up options
+        prompt += "Please answer the user query and suggest 2-3 possible follow-up questions or actions.\n"
+
+        # Query the QA chain with the user's input + conversation history as context
         response = qa_chain.run(prompt)
 
-        # Define follow-up options based on the AI's response
-        if "bank account" in response.lower():
-            follow_up_options = ["How to open a bank account?", "Requirements for opening an account"]
-        elif "transfer money" in response.lower():
-            follow_up_options = ["How to transfer money?", "Fees for transferring money"]
+        # Separate the main response from the follow-up options
+        if "Follow-up suggestions:" in response:
+            # Assuming the AI responds in the format: "Main response... Follow-up suggestions: ..."
+            response_text, follow_up_part = response.split("Follow-up suggestions:", 1)
+            follow_up_options = [option.strip() for option in follow_up_part.split("\n") if option.strip()]
         else:
+            # Default response if no follow-up suggestions are found
+            response_text = response
             follow_up_options = ["Help with other issues", "Contact support"]
 
-        # Update conversation history
-        history.append({"user": user_query, "bot": response})
+        # Clean up the response: Remove "Bot:" from the start of the response if present
+        response_text = response_text.replace("Bot:", "").strip()
+
+        # Update conversation history with the latest interaction
+        history.append({"user": user_query, "bot": response_text})
         conversation_history[chat_id] = history
 
-        return response, follow_up_options
+        return response_text, follow_up_options  # Return both response and follow-up options
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now.", []
+
 
 
 # Function to create inline keyboard based on AI's follow-up options
