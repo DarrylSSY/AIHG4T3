@@ -80,27 +80,31 @@ async def run_conversation(user_input: str):
         # Define the system message (role assignment)
         system_message = SystemMessage(content="You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app.")
 
-        # Retrieve conversation history from memory
-        conversation_history = memory.get_history() or []
+        # Retrieve the conversation history from the state (via LangGraph, not from memory directly)
+        state = graph.get_state(thread_id="1")  # You may need to customize this if you're managing multiple users
+        conversation_history = state.get("messages", [])  # Get the list of messages from the state
 
-        # Add the system message and the user input to the conversation history
+        # Add the system message and user input to the conversation history
         if not conversation_history:
             conversation_history.append(system_message)  # Add system message only once at the beginning
 
         conversation_history.append(HumanMessage(user_input))
 
-        # Pass the entire conversation history as 'messages'
+        # Pass the entire conversation history as 'messages' to the LLM
         response = await llm.invoke(conversation_history)
 
-        # Add the new user message and AI response to memory
-        memory.add_message(HumanMessage(user_input))
-        memory.add_message(AIMessage(response.content))  # Access the response content
+        # Update the conversation history in the state graph
+        state["messages"] = conversation_history
+
+        # Save the updated state back to the state graph
+        graph.update_state(thread_id="1", state=state)
 
         return response.content  # Return the AI's response
 
     except Exception as e:
         logging.error(f"Error during LLM invocation: {e}")
         return "Sorry, I am unable to respond right now."
+
 
 # Endpoint for receiving Telegram messages via webhook
 @app.post("/webhook/")
