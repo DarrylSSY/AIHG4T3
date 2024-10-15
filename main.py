@@ -68,31 +68,29 @@ Your goal is to provide clear, helpful, and concise instructions about the app, 
 Be empathetic, patient, and focused on helping migrant workers.
 """
 
-
-# Modify the generate_response function to include options
-# Modify the generate_response function to have AI generate follow-up options
+# Modify the generate_response function to include options and use them in buttons
 async def generate_response(user_query: str, chat_id: str):
     try:
         # Retrieve conversation history and limit to last 3 exchanges to avoid overwhelming the model
         history = conversation_history.get(chat_id, [])[-3:]
 
-        # Modify the prompt to explicitly ask the AI to generate follow-up options
+        # Modify the prompt to explicitly ask the AI to generate follow-up options as a list
         prompt = SYSTEM_MESSAGE + "\n\n"  # Add the system message at the start
         for turn in history:
             prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n---\n"
         prompt += f"User: {user_query}\n"
 
-        # Add a new instruction for the AI to generate follow-up options
-        prompt += "Please answer the user query and suggest 2-3 possible follow-up questions or actions.\n"
+        # Add a new instruction for the AI to generate follow-up options in a list format
+        prompt += "Please answer the user's query and then provide 2-3 follow-up questions or actions as a list. Format follow-up suggestions as a bullet-point list:\n- Suggestion 1\n- Suggestion 2\n"
 
         # Query the QA chain with the user's input + conversation history as context
         response = qa_chain.run(prompt)
 
         # Separate the main response from the follow-up options
-        if "Follow-up suggestions:" in response:
-            # Assuming the AI responds in the format: "Main response... Follow-up suggestions: ..."
-            response_text, follow_up_part = response.split("Follow-up suggestions:", 1)
-            follow_up_options = [option.strip() for option in follow_up_part.split("\n") if option.strip()]
+        if "-" in response:
+            # Assuming the AI responds in the format: "Main response... - Suggestion 1, - Suggestion 2"
+            response_text, follow_up_part = response.split("-", 1)
+            follow_up_options = ["-" + option.strip() for option in follow_up_part.split("-") if option.strip()]
         else:
             # Default response if no follow-up suggestions are found
             response_text = response
@@ -109,6 +107,7 @@ async def generate_response(user_query: str, chat_id: str):
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now.", []
+
 
 
 # Function to create inline keyboard based on AI's follow-up options
@@ -161,12 +160,8 @@ async def telegram_webhook(request: Request):
 
         # Choose between Inline or Reply Keyboard based on context
         if len(follow_up_options) > 0:
-            if user_query.startswith("/start"):
-                # Use Inline Keyboard for "/start" command
-                reply_markup = create_inline_keyboard(follow_up_options)
-            else:
-                # Use Reply Keyboard for other queries
-                reply_markup = create_reply_keyboard(follow_up_options)
+            # We assume here that you'll always want to use inline keyboards for follow-up suggestions
+            reply_markup = create_inline_keyboard(follow_up_options)
         else:
             reply_markup = None
 
