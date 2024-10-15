@@ -215,7 +215,8 @@ async def telegram_webhook(request: Request):
         # Handle /clear command
         if user_query == "/clear":
             conversation_history.pop(str(chat_id), None)  # Clear the chat history
-            await send_telegram_message(chat_id, "Your chat history has been cleared.")
+            response_text = escape_markdown("Your chat history has been cleared.")
+            await send_telegram_message(chat_id, response_text)
             return {"status": "ok"}
 
         # Handle /start command
@@ -225,7 +226,8 @@ async def telegram_webhook(request: Request):
                 "You can ask questions about account management, transfers, balance checks, loans, and more. "
                 "Type /contact for support information."
             )
-            await send_telegram_message(chat_id, welcome_message)
+            response_text = escape_markdown(welcome_message)
+            await send_telegram_message(chat_id, response_text)
             return {"status": "ok"}
 
         # Handle /contact command
@@ -236,7 +238,8 @@ async def telegram_webhook(request: Request):
                 "- Email: support@dbs.com\n"
                 "- Visit: https://www.dbs.com/contact-us"
             )
-            await send_telegram_message(chat_id, contact_info)
+            response_text = escape_markdown(contact_info)
+            await send_telegram_message(chat_id, response_text)
             return {"status": "ok"}
 
         # Handle user queries as normal
