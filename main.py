@@ -1,17 +1,16 @@
-import os
 import logging
-import httpx
-from fastapi import FastAPI, Request
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_openai import OpenAIEmbeddings
-from langchain.chains import RetrievalQA
-from langchain_openai import ChatOpenAI
-from telegram import ReplyKeyboardMarkup
-from dotenv import load_dotenv
+import os
 import re
-import json
+import httpx
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request
+from langchain.chains import RetrievalQA
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import Chroma
+from langchain_openai import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings
+from telegram import ReplyKeyboardMarkup
 
 # Load environment variables from .env file
 load_dotenv()
@@ -21,6 +20,9 @@ app = FastAPI()
 
 # Define OpenAI API key and initialize the embeddings model
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Telegram bot token from BotFather
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 
 # Path to your folder with PDF documents
@@ -139,15 +141,11 @@ async def generate_response(user_query: str, chat_id: str):
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now.", []
 
-
 # Function to create reply keyboard based on AI's follow-up options
 def create_reply_keyboard(follow_up_options):
     """Create a reply keyboard with the follow-up options provided by the AI."""
     keyboard = [[option] for option in follow_up_options]  # Create buttons in a list format
     return ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-
-# Telegram bot token from BotFather
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # Send a message back to the user via Telegram API with optional reply_markup
 async def send_telegram_message(chat_id: str, text: str, reply_markup=None):
