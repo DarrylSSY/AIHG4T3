@@ -16,12 +16,6 @@ telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 # Define the chatbot function to generate a response
 async def generate_response(user_query: str):
     try:
-        # (Optional) Perform embedding-based document search if applicable
-        search_results = openai.Embedding.create(
-            model="text-embedding-ada-002",
-            input=user_query
-        )
-
         # Use the query to generate a response using GPT-4
         gpt_response = openai.ChatCompletion.create(
             model="gpt-4",
