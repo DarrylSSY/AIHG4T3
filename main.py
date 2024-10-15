@@ -47,7 +47,7 @@ def load_pdfs_and_create_vectorstore(pdf_folder):
 vectorstore = load_pdfs_and_create_vectorstore(PDF_FOLDER)
 
 # Initialize the language model
-llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4")
+llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o")
 
 # Create the RetrievalQA chain
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstore.as_retriever())
