@@ -42,6 +42,8 @@ graph_builder = StateGraph(State)
 
 # Define the chatbot function
 def chatbot(state: State):
+    if not state["messages"]:
+        raise ValueError("Must write to at least one of ['messages']")
     return {"messages": [llm.invoke(state["messages"])]}
 
 # Add nodes to the graph
@@ -76,36 +78,40 @@ async def say_hello(name: str):
 # Ensure your node function returns updated state
 async def run_conversation(user_input: str, chat_id: int):
     try:
-        # Define the system message
-        system_message = SystemMessage(content="You are a DBS digibank chatbot guide.")
+        # Define the system message for role assignment
+        system_message = SystemMessage(content="You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app.")
 
+        # Get the user-specific state based on chat_id
         config = {"configurable": {"thread_id": str(chat_id)}}
         state_snapshot = graph.get_state(config)
 
+        # Ensure the 'messages' key exists, if not, initialize it
         conversation_history = state_snapshot.values.get("messages", [])
-
         if not conversation_history:
             conversation_history.append(system_message)
 
-        conversation_history.append(HumanMessage(user_input))
+        # Add the new user input as a HumanMessage
+        conversation_history.append(HumanMessage(content=user_input))
 
-        # Invoke the model asynchronously
+        # Invoke the model asynchronously and generate a response
         response = await llm.ainvoke(conversation_history)
 
-        # Add the AI response to the conversation history
+        # Add the AI's response to the conversation history
         conversation_history.append(AIMessage(content=response.content))
 
-        # **Update the state** with the new conversation history
+        # Update the state with the new conversation history
         state_snapshot.values["messages"] = conversation_history
 
-        # Write back the updated state
+        # Write the updated state back to the state graph
         graph.update_state(config, state_snapshot)
 
+        # Return the generated response
         return response.content
 
     except Exception as e:
         logging.error(f"Error during LLM invocation: {e}")
         return "Sorry, I am unable to respond right now."
+
 
 # Endpoint for receiving Telegram messages via webhook
 @app.post("/webhook/")
