@@ -66,37 +66,71 @@ Your goal is to provide clear, helpful, and concise instructions about the app, 
 Be empathetic, patient, and focused on helping migrant workers.
 """
 
-# Modify the generate_response function to include options and use them in buttons
+# Modify the generate_response function to include options based on certain keywords in the response
 async def generate_response(user_query: str, chat_id: str):
     try:
         # Retrieve conversation history and limit to last 3 exchanges to avoid overwhelming the model
         history = conversation_history.get(chat_id, [])[-3:]
 
-        # Modify the prompt to explicitly ask the AI to generate a JSON-formatted response
+        # Modify the prompt with the conversation history and user query
         prompt = SYSTEM_MESSAGE + "\n\n"
         for turn in history:
             prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n---\n"
         prompt += f"User: {user_query}\n"
 
-        # Instruct AI to respond in JSON format
-        prompt += 'Please respond in the following JSON format:\n'
-        prompt += '{"response": "<main response>", "options": ["<follow-up question 1>", "<follow-up question 2>"]}\n'
-
         # Query the QA chain with the user's input + conversation history as context
-        response = qa_chain.run(prompt)
+        response = qa_chain.invoke({"input": prompt})  # Use invoke() instead of run()
+        response_text = str(response)  # Ensure response is a string
 
-        # Attempt to parse the response as JSON
-        try:
-            response_json = json.loads(response)  # Parse the AI's response as JSON
-            response_text = response_json.get('response', 'Sorry, something went wrong.')
-            follow_up_options = response_json.get('options', [])
-        except json.JSONDecodeError:
-            # If there's an issue with the JSON response, return a fallback message
-            response_text = "Sorry, I couldn't understand the response format."
-            follow_up_options = []
+        # Define follow-up options based on keywords in the response
+        follow_up_options = []
+        # Account-related options
+        if "bank account" in response_text.lower() or "account opening" in response_text.lower():
+            follow_up_options = ["How to open a bank account?", "Requirements for opening an account",
+                                 "How to close a bank account?"]
 
-        # Clean up the response (if needed) and update the conversation history
+        # Transfer-related options
+        elif "transfer money" in response_text.lower() or "payment" in response_text.lower():
+            follow_up_options = ["How to transfer money?", "Fees for transferring money", "Transfer limits and time"]
+
+        # Balance-related options
+        elif "balance" in response_text.lower():
+            follow_up_options = ["How to check my balance?", "How to set balance alerts",
+                                 "How to check previous transactions?"]
+
+        # Loan-related options
+        elif "loan" in response_text.lower() or "borrow money" in response_text.lower():
+            follow_up_options = ["How to apply for a loan?", "Loan interest rates",
+                                 "What documents are needed for a loan?"]
+
+        # Card-related options
+        elif "credit card" in response_text.lower() or "debit card" in response_text.lower():
+            follow_up_options = ["How to apply for a credit card?", "How to block or replace a lost card?",
+                                 "How to view credit card statements?"]
+
+        # Digibank app-related options
+        elif "mobile app" in response_text.lower() or "digibank" in response_text.lower():
+            follow_up_options = ["How to log in to DBS Digibank?", "How to reset my password?",
+                                 "Features of DBS Digibank app"]
+
+        # Transaction-related options
+        elif "transaction" in response_text.lower():
+            follow_up_options = ["How to view past transactions?", "Dispute a transaction",
+                                 "How to download account statements?"]
+
+        # Investment-related options
+        elif "investment" in response_text.lower() or "stock" in response_text.lower() or "mutual fund" in response_text.lower():
+            follow_up_options = ["How to invest in stocks?", "Investment options in DBS",
+                                 "How to track my investments?"]
+
+        # Default options if no specific keywords are found
+        else:
+            follow_up_options = ["Contact support"]
+
+        # Clean up the response: Remove "Bot:" from the start of the response if present
         response_text = response_text.replace("Bot:", "").strip()
+
+        # Update conversation history with the latest interaction
         history.append({"user": user_query, "bot": response_text})
         conversation_history[chat_id] = history
 
@@ -104,6 +138,7 @@ async def generate_response(user_query: str, chat_id: str):
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now.", []
+
 
 # Function to create reply keyboard based on AI's follow-up options
 def create_reply_keyboard(follow_up_options):
