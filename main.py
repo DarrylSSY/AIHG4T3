@@ -1,5 +1,4 @@
 import os
-import uuid
 import logging
 import httpx
 from fastapi import FastAPI, Request
@@ -9,7 +8,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain.chains import RetrievalQA
 from langchain_openai import ChatOpenAI
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from dotenv import load_dotenv
 import re
 import json
@@ -27,11 +26,10 @@ embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
 # Path to your folder with PDF documents
 PDF_FOLDER = "./sources"
 
-
 def escape_markdown(text: str) -> str:
+    """Escapes special characters in text for Markdown v2 formatting."""
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
-
 
 # Function to load and process PDFs
 def load_pdfs_and_create_vectorstore(pdf_folder):
@@ -48,7 +46,6 @@ def load_pdfs_and_create_vectorstore(pdf_folder):
     # Create Chroma vector store and store the documents
     vectorstore = Chroma.from_documents(docs, embeddings)
     return vectorstore
-
 
 # Load PDFs and create vector store
 vectorstore = load_pdfs_and_create_vectorstore(PDF_FOLDER)
@@ -108,25 +105,16 @@ async def generate_response(user_query: str, chat_id: str):
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now.", []
 
-
-
 # Function to create inline keyboard based on AI's follow-up options
 def create_inline_keyboard(follow_up_options):
+    """Create an inline keyboard with the follow-up options provided by the AI."""
     keyboard = [
         [InlineKeyboardButton(option, callback_data=option) for option in follow_up_options]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-
-# Function to create reply keyboard based on AI's follow-up options
-def create_reply_keyboard(follow_up_options):
-    keyboard = [[option] for option in follow_up_options]
-    return ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
-
-
 # Telegram bot token from BotFather
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
 
 # Send a message back to the user via Telegram API with optional reply_markup
 async def send_telegram_message(chat_id: str, text: str, reply_markup=None):
@@ -139,7 +127,6 @@ async def send_telegram_message(chat_id: str, text: str, reply_markup=None):
     }
     async with httpx.AsyncClient() as client:
         await client.post(telegram_url, json=payload)
-
 
 # Webhook endpoint for Telegram to send updates
 @app.post("/webhook/")
@@ -158,7 +145,7 @@ async def telegram_webhook(request: Request):
         # Escape special characters in the response for Markdown formatting
         response_text = escape_markdown(response_text)
 
-        # Choose between Inline or Reply Keyboard based on context
+        # Use Inline Keyboard with follow-up options
         if len(follow_up_options) > 0:
             reply_markup = create_inline_keyboard(follow_up_options)
         else:
@@ -169,12 +156,10 @@ async def telegram_webhook(request: Request):
 
     return {"status": "ok"}
 
-
 # Health check endpoint for diagnostics
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
-
 
 # Run the FastAPI app on the correct port for Railway
 if __name__ == "__main__":
