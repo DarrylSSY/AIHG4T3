@@ -75,20 +75,21 @@ async def say_hello(name: str):
     return {"message": f"Hello {name}"}
 
 # Function to handle the conversation with memory
-async def run_conversation(user_input: str):
+async def run_conversation(user_input: str, chat_id: int):
     try:
         # Define the system message (role assignment)
         system_message = SystemMessage(content="You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app.")
 
-        # Retrieve the conversation history from the state (without 'thread_id')
-        state = graph.get_state()  # No thread_id argument
+        # Define the configuration for the state (with user-specific information)
+        config = {"configurable": {"thread_id": str(chat_id)}}
 
-        # Get the list of messages from the state
+        # Retrieve the conversation history for this user using chat_id and config
+        state = graph.get_state(config)  # Pass config argument to get_state
         conversation_history = state.get("messages", [])
 
-        # Add the system message and user input to the conversation history
+        # Add the system message and the user input to the conversation history
         if not conversation_history:
-            conversation_history.append(system_message)  # Add system message only once at the beginning
+            conversation_history.append(system_message)
 
         conversation_history.append(HumanMessage(user_input))
 
@@ -98,8 +99,8 @@ async def run_conversation(user_input: str):
         # Update the conversation history in the state graph
         state["messages"] = conversation_history
 
-        # Save the updated state back to the state graph
-        graph.update_state(state)  # No thread_id argument
+        # Save the updated state back to the state graph, keyed by chat_id
+        graph.update_state(config, state)  # Use config when updating the state
 
         return response.content  # Return the AI's response
 
@@ -107,20 +108,21 @@ async def run_conversation(user_input: str):
         logging.error(f"Error during LLM invocation: {e}")
         return "Sorry, I am unable to respond right now."
 
-
 # Endpoint for receiving Telegram messages via webhook
 @app.post("/webhook/")
 async def telegram_webhook(webhook: TelegramWebhook):
     message = webhook.message.get("text", "")
-    chat_id = webhook.message["chat"]["id"]
+    chat_id = webhook.message["chat"]["id"]  # Retrieve the chat_id from the message
 
-    # Run the conversation handler to get GPT-4's response
-    response_text = await run_conversation(message)
+    # Run the conversation handler to get GPT-4's response, passing the chat_id
+    response_text = await run_conversation(message, chat_id)
 
     # Send the generated response back to the user on Telegram
     await send_message(chat_id, response_text)
 
     return {"status": "ok"}
+
+
 
 # Utility function to send a message back to the Telegram user
 async def send_message(chat_id: int, text: str):
