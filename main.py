@@ -42,13 +42,10 @@ async def say_hello(name: str):
 # Function to handle the conversation with memory
 async def run_conversation(user_input: str):
     # Get the previous conversation history from memory
-    conversation_history = memory.get_session_history()
+    conversation_history = memory.get_session_history
 
     # Generate a response from GPT-4 based on the input and past conversation
-    response = await llm.agenerate(
-        [HumanMessage(user_input)],
-        previous_messages=conversation_history
-    )
+    response = await llm.invoke([HumanMessage(user_input)], previous_messages=conversation_history)
 
     # Update memory with the new conversation
     memory.add_message(HumanMessage(user_input))
