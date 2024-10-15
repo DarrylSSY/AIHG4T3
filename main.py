@@ -1,6 +1,7 @@
 import logging
 import os
 from fastapi import FastAPI
+from langchain_core.messages import SystemMessage
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
@@ -23,8 +24,7 @@ telegram_url = f"https://api.telegram.org/bot{telegram_token}"
 # Initialize the GPT-4 chat model using LangChain's ChatOpenAI
 llm = ChatOpenAI(
     model_name="gpt-4",
-    openai_api_key=openai_api_key,
-    system_message="You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app."
+    openai_api_key=openai_api_key
 )
 
 # Initialize LangGraph MemorySaver for memory persistence
@@ -40,6 +40,8 @@ class State(TypedDict):
 # Build the state graph
 graph_builder = StateGraph(State)
 
+
+# Define the chatbot function
 # Define the chatbot function
 def chatbot(state: State):
     return {"messages": [llm.invoke(state["messages"])]}
@@ -75,23 +77,29 @@ async def say_hello(name: str):
 # Function to handle the conversation with memory
 async def run_conversation(user_input: str):
     try:
-        # Define the config with thread_id
-        config = {"configurable": {"thread_id": "1"}}
+        # Define the system message (role assignment)
+        system_message = SystemMessage(content="You are a DBS digibank chatbot guide. Your role is to assist migrant workers in using the digibank app.")
 
-        # Check if the user input is the clear command
-        if user_input.strip().lower() == "/clear":
-            memory.clear_messages()
-            return "Chat history cleared."
+        # Retrieve conversation history from memory
+        conversation_history = memory.get_history() or []
 
-        # Generate a response from GPT-4 based on the input and past conversation
-        events = graph.stream({"messages": [("user", user_input)]}, config, stream_mode="values")
-        response = ""
-        for event in events:
-            response = event["messages"][-1].content
+        # Add the system message and the user input to the conversation history
+        if not conversation_history:
+            conversation_history.append(system_message)  # Add system message only once at the beginning
 
-        return response
+        conversation_history.append(HumanMessage(user_input))
+
+        # Pass the entire conversation history as 'messages'
+        response = await llm.invoke(conversation_history)
+
+        # Add the new user message and AI response to memory
+        memory.add_message(HumanMessage(user_input))
+        memory.add_message(AIMessage(response.content))  # Access the response content
+
+        return response.content  # Return the AI's response
+
     except Exception as e:
-        logging.error(f"Error in conversation: {e}")
+        logging.error(f"Error during LLM invocation: {e}")
         return "Sorry, I am unable to respond right now."
 
 # Endpoint for receiving Telegram messages via webhook
