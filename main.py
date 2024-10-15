@@ -4,13 +4,16 @@ import re
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
-from langchain.chains import RetrievalQA
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
-from langchain_openai import ChatOpenAI
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from telegram import ReplyKeyboardMarkup
+from langchain import hub
 
 # Load environment variables from .env file
 load_dotenv()
@@ -53,10 +56,16 @@ def load_pdfs_and_create_vectorstore(pdf_folder):
 vectorstore = load_pdfs_and_create_vectorstore(PDF_FOLDER)
 
 # Initialize the language model
-llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o")
+llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o-mini")
 
-# Create the RetrievalQA chain
-qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstore.as_retriever())
+# Use LCEL for retrieval and answering
+retrieval_qa_chat_prompt = hub.pull("langchain-ai/retrieval-qa-chat")
+
+# Create a chain to combine documents for the prompt
+combine_docs_chain = create_stuff_documents_chain(llm, retrieval_qa_chat_prompt)
+
+# Create a full retrieval chain
+rag_chain = create_retrieval_chain(vectorstore.as_retriever(), combine_docs_chain)
 
 # In-memory storage for conversation history based on chat ID
 conversation_history = {}
@@ -74,15 +83,17 @@ async def generate_response(user_query: str, chat_id: str):
         # Retrieve conversation history and limit to last 3 exchanges to avoid overwhelming the model
         history = conversation_history.get(chat_id, [])[-3:]
 
-        # Modify the prompt with the conversation history and user query
+        # Construct the prompt
         prompt = SYSTEM_MESSAGE + "\n\n"
         for turn in history:
-            prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n---\n"
+            prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n"
         prompt += f"User: {user_query}\n"
 
-        # Query the QA chain with the correct input key 'query' (not 'input')
-        response = qa_chain.invoke({"query": prompt})  # Use 'query' instead of 'input'
-        response_text = str(response)  # Ensure response is a string
+        # Run the query using the LCEL retrieval chain
+        response = rag_chain.invoke({"input": user_query})
+
+        # Get the text result from the response
+        response_text = str(response['answer'])  # Ensure response is a string
 
         # Define follow-up options based on keywords in the response
         follow_up_options = []
@@ -140,7 +151,6 @@ async def generate_response(user_query: str, chat_id: str):
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now.", []
-
 
 # Function to create reply keyboard based on AI's follow-up options
 def create_reply_keyboard(follow_up_options):
