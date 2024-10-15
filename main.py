@@ -24,8 +24,11 @@ async def generate_response(user_query: str):
             input=user_query
         )
 
-        # Retrieve the relevant content from the embeddings (adapt this as per your vector store logic)
-        retrieved_content = " ".join([doc['text'] for doc in search_results.data])
+        # Convert the search results to a dictionary if needed
+        search_data = search_results.model_dump()  # This will give you a dictionary
+
+        # Retrieve the relevant content from the embeddings
+        retrieved_content = " ".join([doc['text'] for doc in search_data['data']])  # Adapt based on your retrieval logic
 
         # Generate a response using GPT-4 based on the retrieved content and user query
         gpt_response = client.chat.completions.create(
@@ -41,6 +44,7 @@ async def generate_response(user_query: str):
     except Exception as e:
         logging.error(f"Error in conversation: {e}")
         return "Sorry, I am unable to respond right now."
+
 
 # Data model for handling the Telegram Webhook payload
 class TelegramWebhook(BaseModel):
