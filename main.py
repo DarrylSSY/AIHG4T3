@@ -83,9 +83,11 @@ async def run_conversation(user_input: str, chat_id: int):
         # Define the configuration for the state (with user-specific information)
         config = {"configurable": {"thread_id": str(chat_id)}}
 
-        # Retrieve the conversation history for this user using chat_id and config
-        state = graph.get_state(config)  # Pass config argument to get_state
-        conversation_history = state.get("messages", [])
+        # Retrieve the conversation state for the current user
+        state_snapshot = graph.get_state(config)
+
+        # Access the conversation history from the state_snapshot
+        conversation_history = state_snapshot.values.get("messages", [])  # Use .values to access state data
 
         # Add the system message and the user input to the conversation history
         if not conversation_history:
@@ -97,10 +99,10 @@ async def run_conversation(user_input: str, chat_id: int):
         response = await llm.invoke(conversation_history)
 
         # Update the conversation history in the state graph
-        state["messages"] = conversation_history
+        state_snapshot.values["messages"] = conversation_history
 
         # Save the updated state back to the state graph, keyed by chat_id
-        graph.update_state(config, state)  # Use config when updating the state
+        graph.update_state(config, state_snapshot)
 
         return response.content  # Return the AI's response
 
