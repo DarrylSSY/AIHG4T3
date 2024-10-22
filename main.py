@@ -261,6 +261,8 @@ async def telegram_webhook(request: Request):
 
         # Handle /start command
         if user_query == "/start":
+            conversation_history.pop(chat_id_str, None)  # Clear the chat history
+            language_preferences.pop(chat_id_str, None)  # Clear the language preference
             # Provide language options
             languages = ["English", "中文", "Bahasa Indonesia", "বাংলা", "தமிழ்", "မြန်မာဘာသာ"]
             reply_markup = ReplyKeyboardMarkup([[lang] for lang in languages], one_time_keyboard=True, resize_keyboard=True)
