@@ -74,14 +74,14 @@ language_preferences = {}
 
 # Update the conversation history with a limit
 def update_conversation_history(chat_id: str, user_query: str, bot_response: str):
-    history = conversation_history.get(chat_id, [])
+    history = conversation_history.get(str(chat_id), [])
     history.append({"user": user_query, "bot": bot_response})
 
     # Keep the history within the defined limit
     if len(history) > CONVERSATION_LIMIT:
         history = history[-CONVERSATION_LIMIT:]
 
-    conversation_history[chat_id] = history
+    conversation_history[str(chat_id)] = history
 
 
 # Define the AI's role as a system message
@@ -98,10 +98,10 @@ If you suspect that the user might be facing a scam or fraud, provide clear inst
 async def generate_response(user_query: str, chat_id: str):
     try:
         # Retrieve the last 3 exchanges to use as context (or fewer if there are not that many)
-        history = conversation_history.get(chat_id, [])[-3:]
+        history = conversation_history.get(str(chat_id), [])[-3:]
 
         # Get the user's language preference
-        user_language = language_preferences.get(chat_id, 'English')
+        user_language = language_preferences.get(str(chat_id), 'English')
 
         # Modify the prompt with the conversation history, user query, and language preference
         prompt = SYSTEM_MESSAGE + f"\n\nThe user's preferred language is {user_language}.\n\n"
@@ -109,9 +109,13 @@ async def generate_response(user_query: str, chat_id: str):
             prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n---\n"
         prompt += f"User: {user_query}\n"
 
+        # You may also add a direct instruction to the model
+        prompt += f"\nPlease respond in {user_language}."
+
         # Query the QA chain with the correct input key 'query'
-        response = qa_chain.invoke({"query": prompt})  # Use 'query' instead of 'input'
-        response_text = str(response["result"])  # Ensure the response is a string
+        response = qa_chain.invoke({"query": prompt})
+        response_text = str(response["result"]).strip()
+
 
         # Define follow-up options based on keywords in the response (translated to user's language)
         follow_up_options = []
@@ -187,7 +191,7 @@ async def generate_response(user_query: str, chat_id: str):
         response_text = response_text.replace("Bot:", "").strip()
 
         # Update the conversation history with the new interaction
-        update_conversation_history(chat_id, user_query, response_text)
+        update_conversation_history(str(chat_id), user_query, response_text)
 
         return response_text, follow_up_options  # Return both the response and follow-up options
     except Exception as e:
@@ -244,10 +248,13 @@ async def telegram_webhook(request: Request):
     user_query = message.get("text", "").strip()
 
     if chat_id and user_query:
+        # Convert chat_id to string for consistent dictionary keys
+        chat_id_str = str(chat_id)
+
         # Handle /clear command
         if user_query == "/clear":
-            conversation_history.pop(str(chat_id), None)  # Clear the chat history
-            language_preferences.pop(str(chat_id), None)  # Clear the language preference
+            conversation_history.pop(chat_id_str, None)  # Clear the chat history
+            language_preferences.pop(chat_id_str, None)  # Clear the language preference
             response_text = escape_markdown("Your chat history has been cleared.")
             await send_telegram_message(chat_id, response_text)
             return {"status": "ok"}
