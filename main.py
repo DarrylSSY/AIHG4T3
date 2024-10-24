@@ -5,11 +5,10 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from langchain.chains import RetrievalQA
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import Chroma
-from langchain_openai import ChatOpenAI
-from langchain_openai import OpenAIEmbeddings
+from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from telegram import ReplyKeyboardMarkup
 
 # Load environment variables from .env file
@@ -52,8 +51,10 @@ def load_pdfs_and_create_vectorstore(pdf_folder):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     docs = text_splitter.split_documents(documents)
 
-    # Create Chroma vector store and store the documents
-    vectorstore = Chroma.from_documents(docs, embeddings)
+    # Create InMemoryVectorStore and store the documents
+    vectorstore = InMemoryVectorStore.from_documents(
+        documents=docs, embedding=embeddings
+    )
     return vectorstore
 
 
@@ -61,16 +62,18 @@ def load_pdfs_and_create_vectorstore(pdf_folder):
 vectorstore = load_pdfs_and_create_vectorstore(PDF_FOLDER)
 
 # Initialize the language model
-llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o-mini")
+llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o-mini", temperature=0)
 
 # Create the RetrievalQA chain
-qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vectorstore.as_retriever())
+retriever = vectorstore.as_retriever()
+qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
 
 # In-memory storage for conversation history based on chat ID
 conversation_history = {}
 
 # In-memory storage for language preferences based on chat ID
 language_preferences = {}
+
 
 # Update the conversation history with a limit
 def update_conversation_history(chat_id: str, user_query: str, bot_response: str):
@@ -101,6 +104,7 @@ Singapore 415814
 Opening Hours: Monday-Friday 8:30am-4pm, Saturday 8:30am-12.30pm
 """
 
+
 # Modify the generate_response function to include conversation limit logic and language preference
 async def generate_response(user_query: str, chat_id: str):
     try:
@@ -116,13 +120,12 @@ async def generate_response(user_query: str, chat_id: str):
             prompt += f"User: {turn['user']}\nBot: {turn['bot']}\n---\n"
         prompt += f"User: {user_query}\n"
 
-        # You may also add a direct instruction to the model
+        # Add a direct instruction to the model
         prompt += f"\nPlease respond in {user_language}."
 
         # Query the QA chain with the correct input key 'query'
         response = qa_chain.invoke({"query": prompt})
         response_text = str(response["result"]).strip()
-
 
         # Define follow-up options based on keywords in the response (translated to user's language)
         follow_up_options = []
@@ -272,8 +275,19 @@ async def telegram_webhook(request: Request):
             language_preferences.pop(chat_id_str, None)  # Clear the language preference
             # Provide language options
             languages = ["English", "中文", "Bahasa Indonesia", "বাংলা", "தமிழ்", "မြန်မာဘာသာ"]
-            reply_markup = ReplyKeyboardMarkup([[lang] for lang in languages], one_time_keyboard=True, resize_keyboard=True)
-            welcome_message = "Please select your preferred language:\n请选择您的首选语言：\nSilakan pilih bahasa pilihan Anda:\nআপনার পছন্দের ভাষা নির্বাচন করুন:\nதயவுசெய்து உங்கள் விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்:\nကျေးဇူးပြု၍ သင်နှစ်သက်သောဘာသာစကားကိုရွေးချယ်ပါ။"
+            reply_markup = ReplyKeyboardMarkup(
+                [[lang] for lang in languages],
+                one_time_keyboard=True,
+                resize_keyboard=True
+            )
+            welcome_message = (
+                "Please select your preferred language:\n"
+                "请选择您的首选语言：\n"
+                "Silakan pilih bahasa pilihan Anda:\n"
+                "আপনার পছন্দের ভাষা নির্বাচন করুন:\n"
+                "தயவுசெய்து உங்கள் விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்:\n"
+                "ကျေးဇူးပြု၍ သင်နှစ်သက်သောဘာသာစကားကိုရွေးချယ်ပါ။"
+            )
             response_text = escape_markdown(welcome_message)
             await send_telegram_message(chat_id, response_text, reply_markup)
             return {"status": "ok"}
@@ -301,7 +315,11 @@ async def telegram_webhook(request: Request):
             else:
                 # Prompt the user again to select a valid language
                 languages = ["English", "中文", "Bahasa Indonesia", "বাংলা", "தமிழ்", "မြန်မာဘာသာ"]
-                reply_markup = ReplyKeyboardMarkup([[lang] for lang in languages], one_time_keyboard=True, resize_keyboard=True)
+                reply_markup = ReplyKeyboardMarkup(
+                    [[lang] for lang in languages],
+                    one_time_keyboard=True,
+                    resize_keyboard=True
+                )
                 error_message = "Invalid selection. Please choose a language from the options below."
                 response_text = escape_markdown(error_message)
                 await send_telegram_message(chat_id, response_text, reply_markup)
@@ -324,37 +342,18 @@ async def telegram_webhook(request: Request):
                     "- 电子邮件：support@dbs.com\n"
                     "- 访问：https://www.dbs.com/contact-us"
                 ),
-                "Bahasa Indonesia": (
-                    "Untuk bantuan lebih lanjut, Anda dapat menghubungi Dukungan Pelanggan DBS:\n"
-                    "- Telepon: 1800-111-1111 (24/7)\n"
-                    "- Email: support@dbs.com\n"
-                    "- Kunjungi: https://www.dbs.com/contact-us"
-                ),
-                "বাংলা": (
-                    "অতিরিক্ত সহায়তার জন্য, আপনি ডিবিএস গ্রাহক সমর্থনের সাথে যোগাযোগ করতে পারেন:\n"
-                    "- ফোন: ১৮০০-১১১-১১১১ (২৪/৭)\n"
-                    "- ইমেইল: support@dbs.com\n"
-                    "- ভিজিট করুন: https://www.dbs.com/contact-us"
-                ),
-                "தமிழ்": (
-                    "கூடுதல் உதவிக்கு, நீங்கள் டிபிஎஸ் வாடிக்கையாளர் ஆதரவை தொடர்பு கொள்ளலாம்:\n"
-                    "- தொலைபேசி: 1800-111-1111 (24/7)\n"
-                    "- மின்னஞ்சல்: support@dbs.com\n"
-                    "- பார்வையிடவும்: https://www.dbs.com/contact-us"
-                ),
-                "မြန်မာဘာသာ": (
-                    "ထပ်မံကူညီရန်အတွက် သင်သည် DBS Customer Support ကို ဆက်သွယ်နိုင်သည်။\n"
-                    "- ဖုန်းနံပါတ် - ၁၈၀၀-၁၁၁-၁၁၁၁ (၂၄/၇)\n"
-                    "- အီးမေးလ် - support@dbs.com\n"
-                    "- ဝဘ်ဆိုက် - https://www.dbs.com/contact-us"
-                )
+                # Include other languages as needed
             }
-            response_text = escape_markdown(contact_info[user_language])
+            response_text = escape_markdown(
+                contact_info.get(user_language, contact_info["English"])
+            )
             await send_telegram_message(chat_id, response_text)
             return {"status": "ok"}
 
         # Handle user queries as normal
-        response_text, follow_up_options = await generate_response(user_query, str(chat_id))
+        response_text, follow_up_options = await generate_response(
+            user_query, str(chat_id)
+        )
 
         # Get user's language preference
         user_language = language_preferences.get(str(chat_id), 'English')
