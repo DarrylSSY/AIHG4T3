@@ -94,6 +94,10 @@ Always respond in the user's preferred language, which is provided to you. If th
 If you suspect that the user might be facing a scam or fraud, provide clear instructions on how to verify the authenticity of the message or call.
 Try to keep within DBS Digibank app's scope and avoid discussing unrelated topics.
 You may search the internet for information to assist the user if there is no relevant information in the data provided.
+The following is the address of the DBS Bank Account Services Centre for Work Permit Holders:
+Account Services Centre (For Work Permit Holders) 7 Kaki Bukit Avenue 3, #01-08/09/10/11/12, Kaki Bukit Recreation Centre
+Singapore 415814
+Opening Hours: Monday-Friday 8:30am-4pm, Saturday 8:30am-12.30pm
 """
 
 # Modify the generate_response function to include conversation limit logic and language preference
