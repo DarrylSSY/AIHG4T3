@@ -10,6 +10,11 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from telegram import ReplyKeyboardMarkup
+import datetime
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
+from sqlalchemy.orm import declarative_base, sessionmaker
+from fastapi.responses import JSONResponse
+from typing import Optional
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,6 +36,29 @@ CONVERSATION_LIMIT = 10  # Set the history limit to 10 exchanges
 
 # Path to your folder with PDF documents
 PDF_FOLDER = "./sources"
+
+# Database URL (using SQLite for simplicity)
+DATABASE_URL = "sqlite:///./conversations.db"
+
+# Create the database engine
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+# Create a configured "Session" class
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Base class for declarative models
+Base = declarative_base()
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chat_id = Column(String, index=True)
+    user_message = Column(Text)
+    bot_response = Column(Text)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+
+Base.metadata.create_all(bind=engine)
 
 
 def escape_markdown(text: str) -> str:
@@ -85,7 +113,21 @@ def update_conversation_history(chat_id: str, user_query: str, bot_response: str
         history = history[-CONVERSATION_LIMIT:]
 
     conversation_history[str(chat_id)] = history
-
+    # New code to save the conversation to the database
+    db = SessionLocal()
+    try:
+        conversation_entry = Conversation(
+            chat_id=chat_id,
+            user_message=user_query,
+            bot_response=bot_response,
+        )
+        db.add(conversation_entry)
+        db.commit()
+    except Exception as e:
+        logging.error(f"Error saving conversation to database: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 # Define the AI's role as a system message
 SYSTEM_MESSAGE = """
@@ -378,6 +420,31 @@ async def telegram_webhook(request: Request):
 async def health_check():
     return {"status": "ok"}
 
+@app.get("/conversations")
+async def get_conversations(chat_id: Optional[str] = None):
+    db = SessionLocal()
+    try:
+        if chat_id:
+            conversations = db.query(Conversation).filter(Conversation.chat_id == chat_id).all()
+        else:
+            conversations = db.query(Conversation).all()
+        # Convert to list of dictionaries for JSON response
+        conversation_list = [
+            {
+                "id": conv.id,
+                "chat_id": conv.chat_id,
+                "user_message": conv.user_message,
+                "bot_response": conv.bot_response,
+                "timestamp": conv.timestamp.isoformat(),
+            }
+            for conv in conversations
+        ]
+        return JSONResponse(content={"conversations": conversation_list})
+    except Exception as e:
+        logging.error(f"Error retrieving conversations: {e}")
+        return JSONResponse(content={"error": "Unable to retrieve conversations"}, status_code=500)
+    finally:
+        db.close()
 
 # Run the FastAPI app on the correct port for Railway
 if __name__ == "__main__":
