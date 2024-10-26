@@ -446,6 +446,44 @@ async def get_conversations(chat_id: Optional[str] = None):
     finally:
         db.close()
 
+# Get by chat_id
+@app.get("/conversations/{chat_id}")
+async def get_conversation_by_chat_id(chat_id: str):
+    db = SessionLocal()
+    try:
+        conversations = db.query(Conversation).filter(Conversation.chat_id == chat_id).all()
+        conversation_list = [
+            {
+                "id": conv.id,
+                "chat_id": conv.chat_id,
+                "user_message": conv.user_message,
+                "bot_response": conv.bot_response,
+                "timestamp": conv.timestamp.isoformat(),
+            }
+            for conv in conversations
+        ]
+        return JSONResponse(content={"conversations": conversation_list})
+    except Exception as e:
+        logging.error(f"Error retrieving conversations for chat_id {chat_id}: {e}")
+        return JSONResponse(content={"error": "Unable to retrieve conversations"}, status_code=500)
+    finally:
+        db.close()
+
+# Get list of chat IDs
+@app.get("/chat_ids")
+async def get_chat_ids():
+    db = SessionLocal()
+    try:
+        chat_ids = db.query(Conversation.chat_id).distinct().all()
+        chat_id_list = [chat_id[0] for chat_id in chat_ids]
+        return JSONResponse(content={"chat_ids": chat_id_list})
+    except Exception as e:
+        logging.error(f"Error retrieving chat IDs: {e}")
+        return JSONResponse(content={"error": "Unable to retrieve chat IDs"}, status_code=500)
+    finally:
+        db.close()
+
+
 # Run the FastAPI app on the correct port for Railway
 if __name__ == "__main__":
     import uvicorn
